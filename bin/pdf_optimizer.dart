@@ -18,38 +18,96 @@ Future main(List<String> arguments) async {
   final dim2 = pdfData.pages.map((f) => f.dimensions.y).toList();
   dim1.sort();
   final scaleY = a2height / dim2.last;
-  final scaleMin = min(scaleX, scaleY);
+  final scaleMin = num.parse(min(scaleX, scaleY).toStringAsFixed(2));
+  var tempName = "${arguments[0].substring(0, arguments[0].length-4)}.PROCESSED.pdf";
+  await Process.run('cp', ['${arguments[0]}', '$tempName']);
   if (scaleMin < 1) {
-    await _separatePages(arguments[0], pdfData.pages.length);
-    await _doResize(pdfData, scaleMin);
-    await _concatenate(arguments[0], pdfData.pages.length);
+    print("Scaling factor: $scaleMin");
+    bool samePages =
+        pdfData.pages.map((f) => f.dimensions.x).toList().reduce(min) == pdfData.pages.first.dimensions.x
+            && pdfData.pages.map((f) => f.dimensions.x).toList().reduce(max) == pdfData.pages.first.dimensions.x
+            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(min) == pdfData.pages.first.dimensions.y
+            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(max) == pdfData.pages.first.dimensions.y;
+    if (!samePages) {
+      print("Pages have different sizes, need to separate");
+      await _separatePages(tempName, pdfData.pages.length);
+      await _doResizePages(pdfData, scaleMin);
+      await _concatenate(tempName, pdfData.pages.length);
+    }
+    else {
+      print("Pages have same size, just resizing");
+      await _doResizeFile(tempName, pdfData.pages.first.dimensions, scaleMin);
+    }
+    print("Downsampling images: $tempName");
+    await _downsample(tempName);
   }
   else {
     print("...no need to adjust.");
   }
 }
 
-Future _concatenate(String filename, int pages) async {
-  print("Concatenating pages");
-  final processed = "${filename.substring(0, filename.length-4)}.PROCESSED.pdf";
-  final files = ['-dBATCH', '-dNOPAUSE', '-q', '-sDEVICE=pdfwrite', '-dAutoRotatePages=/None', '-sOutputFile=$processed'];
-  for (var i=1; i<=pages; i++) {
-    files.add("split$i.pdf");
-  }
-  await Process.run('gs', files);
-  for (var i=1; i<=pages; i++) {
-//    await Process.run('rm', ['split$i.pdf']);
-  }
+Future _downsample(String file) async {
+  final args = [
+    '-dColorImageDownsampleType=/Bicubic',
+    '-dColorImageResolution=150',
+    '-dGrayImageDownsampleType=/Bicubic',
+    '-dGrayImageResolution=150',
+    '-dMonoImageDownsampleType=/Bicubic',
+    '-dMonoImageResolution=150',
+    '-dPDFSETTINGS=/ebook',
+    '-dBATCH',
+    '-dNOPAUSE',
+    '-q',
+    '-sDEVICE=pdfwrite',
+    '-dAutoRotatePages=/None',
+    '-sOutputFile=$file.new',
+    file
+  ];
+  await Process.run('gs', args).then((ProcessResult res) => print(res.stdout));
+  await Process.run('mv', ['$file.new', '$file']);
 }
 
-Future _doResize(PdfData data, num scale) async {
-  print("Scaling pages to A2");
+Future _concatenate(String filename, int pages) async {
+  print("Concatenating pages");
+  final processed = "1_${filename}";
+  final args = [
+    '-dBATCH',
+    '-dNOPAUSE',
+    '-q',
+    '-sDEVICE=pdfwrite',
+    '-dAutoRotatePages=/None',
+    '-sOutputFile=$processed',
+  ];
+  for (var i=1; i<=pages; i++) {
+    args.add("split$i.pdf");
+  }
+  await Process.run('gs', args);
+  for (var i=1; i<=pages; i++) {
+    await Process.run('rm', ['split$i.pdf']);
+  }
+  await Process.run('mv', ['$processed', '$filename']);
+}
+
+Future _doResizePages(PdfData data, num scale) async {
   for (var i=1; i<=data.pages.length; i++) {
     final page = data.pages.firstWhere((p) => p.pageNum == i);
     print("=> scaling $i");
-    await Process.run('./pdfscale.sh', ['-a', 'none', '-r','custom pt ${(page.dimensions.x*scale).round()} ${(page.dimensions.y*scale).round()}', 'split$i.pdf', 'split_scaled$i.pdf']);
-    await Process.run('mv', ['split_scaled$i.pdf', 'split$i.pdf']);
+    await _doResizeFile("split$i.pdf", page.dimensions, scale);
   }
+}
+
+Future _doResizeFile(String file, Point size, num scale) async {
+  await Process.run('./pdfscale.sh', [
+    '-a',
+    'none',
+    '-r',
+    'custom pt ${(size.x*scale).round()} ${(size.y*scale).round()}',
+    '-s',
+    '1.05',
+    '$file',
+    '$file.scaled.pdf'
+  ]);
+  await Process.run('mv', ['$file.scaled.pdf', '$file']);
 }
 
 Future _separatePages(String filename, int pages) async {
