@@ -5,134 +5,107 @@ import 'dart:math';
 final a2width = 1191;
 final a2height = 1684;
 
+final threshold = 10000000; //6mpix is fast enough
+
 Future main(List<String> arguments) async {
   if (arguments.length != 1) {
     print("Usage: pdf_optimizer <filename.pdf>");
     return;
   }
-  print("Adjusting size");
   PdfData pdfData = await _getPdfData(arguments[0]);
-  final dim1 = pdfData.pages.map((f) => f.dimensions.x).toList();
-  dim1.sort();
-  final scaleX = a2width / dim1.last;
-  final dim2 = pdfData.pages.map((f) => f.dimensions.y).toList();
-  dim1.sort();
-  final scaleY = a2height / dim2.last;
-  final scaleMin = num.parse(min(scaleX, scaleY).toStringAsFixed(2));
-  var tempName = "${arguments[0].substring(0, arguments[0].length-4)}.PROCESSED.pdf";
-  await Process.run('cp', ['${arguments[0]}', '$tempName']);
-  if (scaleMin < 1) {
-    print("Scaling factor: $scaleMin");
-    bool samePages =
-        pdfData.pages.map((f) => f.dimensions.x).toList().reduce(min) == pdfData.pages.first.dimensions.x
-            && pdfData.pages.map((f) => f.dimensions.x).toList().reduce(max) == pdfData.pages.first.dimensions.x
-            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(min) == pdfData.pages.first.dimensions.y
-            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(max) == pdfData.pages.first.dimensions.y;
-    if (!samePages) {
-      print("Pages have different sizes, need to separate");
-      await _separatePages(tempName, pdfData.pages.length);
-      await _doResizePages(pdfData, scaleMin);
-      await _concatenate(tempName, pdfData.pages.length);
+  bool needToConvert = false;
+  int needPpi = 999;
+  bool force = false;
+  for (var img in pdfData.images) {
+    if (img.colorSpace == 'cmyk') {
+      needToConvert = true;
+      force = true;
     }
-    else {
-      print("Pages have same size, just resizing");
-      await _doResizeFile(tempName, pdfData.pages.first.dimensions, scaleMin);
+    if (img.mpix > threshold) {
+      needToConvert = true;
+      final scale = threshold/img.mpix;
+      final ppi = (img.dpi * scale).floor();
+      if (needPpi > ppi) {
+        needPpi = ppi;
+      }
     }
-    print("Downsampling images: $tempName");
-    await _downsample(tempName);
+  }
+  if (needToConvert) {
+    print("Converting to RGB space with $needPpi ppi");
+    await _optimize(arguments[0], needPpi, force);
   }
   else {
-    print("...no need to adjust.");
+    print("No need to convert - should work intact");
   }
+
+//  final dim1 = pdfData.pages.map((f) => f.dimensions.x).toList();
+//  dim1.sort();
+//  final scaleX = a2width / dim1.last;
+//  final dim2 = pdfData.pages.map((f) => f.dimensions.y).toList();
+//  dim1.sort();
+//  final scaleY = a2height / dim2.last;
+//  final scaleMin = num.parse(min(scaleX, scaleY).toStringAsFixed(2));
+//  var tempName = "${arguments[0].substring(0, arguments[0].length-4)}.PROCESSED.pdf";
+//  await Process.run('cp', ['${arguments[0]}', '$tempName']);
+//  if (scaleMin < 1) {
+//    print("Scaling factor: $scaleMin");
+//    bool samePages =
+//        pdfData.pages.map((f) => f.dimensions.x).toList().reduce(min) == pdfData.pages.first.dimensions.x
+//            && pdfData.pages.map((f) => f.dimensions.x).toList().reduce(max) == pdfData.pages.first.dimensions.x
+//            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(min) == pdfData.pages.first.dimensions.y
+//            && pdfData.pages.map((f) => f.dimensions.y).toList().reduce(max) == pdfData.pages.first.dimensions.y;
+//    if (!samePages) {
+//      print("Pages have different sizes, need to separate");
+//      await _separatePages(tempName, pdfData.pages.length);
+//      await _doResizePages(pdfData, scaleMin);
+//      await _concatenate(tempName, pdfData.pages.length);
+//    }
+//    else {
+//      print("Pages have same size, just resizing");
+//      await _doResizeFile(tempName, pdfData.pages.first.dimensions, scaleMin);
+//    }
+//    print("Downsampling images: $tempName");
+//    await _downsample(tempName);
+//  }
+//  else {
+//    print("...no need to adjust.");
+//  }
 }
 
-Future _downsample(String file) async {
+Future _optimize(String filename, int ppi, bool force) async {
   final args = [
-    '-dColorImageDownsampleType=/Bicubic',
-    '-dColorImageResolution=150',
-    '-dGrayImageDownsampleType=/Bicubic',
-    '-dGrayImageResolution=150',
-    '-dMonoImageDownsampleType=/Bicubic',
-    '-dMonoImageResolution=150',
-    '-dPDFSETTINGS=/ebook',
-    '-dBATCH',
-    '-dNOPAUSE',
-    '-q',
-    '-sDEVICE=pdfwrite',
-    '-dAutoRotatePages=/None',
-    '-sOutputFile=$file.new',
-    file
+    '-oc',
+    '-or',
+    '-od',
+    '-lk',
+    '1-RGACU-XVPEE-S8WMX-CNTMD-3WECC-CFJCR-B01LP',
+    '-dr',
+    '$ppi',
+    '-dt',
+    '$ppi',
+    '-fb',
+    '2',
+    '-fc',
+    '2',
+    '-fi',
+    '2',
+    '-c',
+    '1',
+    '-ow',
+    '$filename',
+    '${filename.substring(0, filename.length-4)}.squeezed.pdf'
   ];
-  await Process.run('gs', args).then((ProcessResult res) => print(res.stdout));
-  await Process.run('mv', ['$file.new', '$file']);
-}
-
-Future _concatenate(String filename, int pages) async {
-  print("Concatenating pages");
-  final processed = "1_${filename}";
-  final args = [
-    '-dBATCH',
-    '-dNOPAUSE',
-    '-q',
-    '-sDEVICE=pdfwrite',
-    '-dAutoRotatePages=/None',
-    '-sOutputFile=$processed',
-  ];
-  for (var i=1; i<=pages; i++) {
-    args.add("split$i.pdf");
+  if (force) {
+    args.add('-ff');
   }
-  await Process.run('gs', args);
-  for (var i=1; i<=pages; i++) {
-    await Process.run('rm', ['split$i.pdf']);
-  }
-  await Process.run('mv', ['$processed', '$filename']);
-}
-
-Future _doResizePages(PdfData data, num scale) async {
-  for (var i=1; i<=data.pages.length; i++) {
-    final page = data.pages.firstWhere((p) => p.pageNum == i);
-    print("=> scaling $i");
-    await _doResizeFile("split$i.pdf", page.dimensions, scale);
-  }
-}
-
-Future _doResizeFile(String file, Point size, num scale) async {
-  await Process.run('./pdfscale.sh', [
-    '-a',
-    'none',
-    '-r',
-    'custom pt ${(size.x*scale).round()} ${(size.y*scale).round()}',
-    '-s',
-    '1.05',
-    '$file',
-    '$file.scaled.pdf'
-  ]);
-  await Process.run('mv', ['$file.scaled.pdf', '$file']);
-}
-
-Future _separatePages(String filename, int pages) async {
-  print("Separating pages");
-  for (var i=1; i<=pages; i++) {
-    await Process.run('gs', [
-      '-sDEVICE=pdfwrite',
-      '-dCompatibilityLevel=1.4',
-      '-dNOPAUSE',
-      '-dQUIET',
-      '-dBATCH',
-      '-dColorImageFilter=/DCTEncode',
-      '-dColorConversionStrategy=/LeaveColorUnchange',
-      '-dFirstPage=$i',
-      '-dLastPage=$i',
-      '-sOutputFile=split$i.pdf',
-      '-dAutoRotatePages=/None',
-      filename
-    ]);
-  }
+  await Process.run('./pdfoptimize', args).then((ProcessResult results) {
+    final info = results.stdout.toString();
+  });
 }
 
 Future<PdfData> _getPdfData(String filename) async {
   var pagesCount;
-  var pdfData;
+  PdfData pdfData;
   await Process.run('pdfinfo', [filename]).then((ProcessResult results) {
     final info = results.stdout.toString().split("\n");
     var size;
@@ -163,11 +136,39 @@ Future<PdfData> _getPdfData(String filename) async {
       }
     }
   });
+  await Process.run('pdfimages', ['-list', filename]).then((ProcessResult results) {
+    final info = results.stdout.toString().split("\n");
+    for (var next in info) {
+      final line = next.replaceAll(new RegExp(r"\s+"), " ").toLowerCase();
+      final items = line.trim().split(" ");
+      try {
+        if (items[2] == 'image') {
+          final image = new PdfImage(int.parse(items[3]), int.parse(items[4]), int.parse(items[12]), items[5]);
+          pdfData.images.add(image);
+        }
+      }
+      catch(ex) {
+        //just continue
+      }
+    }
+  });
   return pdfData;
+}
+
+class PdfImage {
+  final int width;
+  final int height;
+  final int dpi;
+  final String colorSpace;
+
+  int get mpix => width * height;
+
+  PdfImage(this.width, this.height, this.dpi, this.colorSpace);
 }
 
 class PdfData {
   final List<PdfPageData> pages = [];
+  final List<PdfImage> images = [];
   final bool optimized;
   final int size;
 
@@ -179,3 +180,88 @@ class PdfPageData {
   final pageNum;
   PdfPageData(this.pageNum, this.dimensions);
 }
+
+
+//Future _downsample(String file) async {
+//  final args = [
+//    '-dColorImageDownsampleType=/Bicubic',
+//    '-dColorImageResolution=150',
+//    '-dGrayImageDownsampleType=/Bicubic',
+//    '-dGrayImageResolution=150',
+//    '-dMonoImageDownsampleType=/Bicubic',
+//    '-dMonoImageResolution=150',
+//    '-dPDFSETTINGS=/ebook',
+//    '-dBATCH',
+//    '-dNOPAUSE',
+//    '-q',
+//    '-sDEVICE=pdfwrite',
+//    '-dAutoRotatePages=/None',
+//    '-sOutputFile=$file.new',
+//    file
+//  ];
+//  await Process.run('gs', args).then((ProcessResult res) => print(res.stdout));
+//  await Process.run('mv', ['$file.new', '$file']);
+//}
+//
+//Future _concatenate(String filename, int pages) async {
+//  print("Concatenating pages");
+//  final processed = "1_${filename}";
+//  final args = [
+//    '-dBATCH',
+//    '-dNOPAUSE',
+//    '-q',
+//    '-sDEVICE=pdfwrite',
+//    '-dAutoRotatePages=/None',
+//    '-sOutputFile=$processed',
+//  ];
+//  for (var i=1; i<=pages; i++) {
+//    args.add("split$i.pdf");
+//  }
+//  await Process.run('gs', args);
+//  for (var i=1; i<=pages; i++) {
+//    await Process.run('rm', ['split$i.pdf']);
+//  }
+//  await Process.run('mv', ['$processed', '$filename']);
+//}
+//
+//Future _doResizePages(PdfData data, num scale) async {
+//  for (var i=1; i<=data.pages.length; i++) {
+//    final page = data.pages.firstWhere((p) => p.pageNum == i);
+//    print("=> scaling $i");
+//    await _doResizeFile("split$i.pdf", page.dimensions, scale);
+//  }
+//}
+//
+//Future _doResizeFile(String file, Point size, num scale) async {
+//  await Process.run('./pdfscale.sh', [
+//    '-a',
+//    'none',
+//    '-r',
+//    'custom pt ${(size.x*scale).round()} ${(size.y*scale).round()}',
+//    '-s',
+//    '1.05',
+//    '$file',
+//    '$file.scaled.pdf'
+//  ]);
+//  await Process.run('mv', ['$file.scaled.pdf', '$file']);
+//}
+//
+//Future _separatePages(String filename, int pages) async {
+//  print("Separating pages");
+//  for (var i=1; i<=pages; i++) {
+//    await Process.run('gs', [
+//      '-sDEVICE=pdfwrite',
+//      '-dCompatibilityLevel=1.4',
+//      '-dNOPAUSE',
+//      '-dQUIET',
+//      '-dBATCH',
+//      '-dColorImageFilter=/DCTEncode',
+//      '-dColorConversionStrategy=/LeaveColorUnchange',
+//      '-dFirstPage=$i',
+//      '-dLastPage=$i',
+//      '-sOutputFile=split$i.pdf',
+//      '-dAutoRotatePages=/None',
+//      filename
+//    ]);
+//  }
+//}
