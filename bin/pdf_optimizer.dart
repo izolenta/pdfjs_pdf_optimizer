@@ -5,7 +5,8 @@ import 'dart:math';
 final a2width = 1191;
 final a2height = 1684;
 
-final threshold = 10000000; //6mpix is fast enough
+final downscaleTo = 9000000; //9mpix is fast enough
+final threshold = downscaleTo * 1.3;
 
 Future main(List<String> arguments) async {
   if (arguments.length != 1) {
@@ -23,7 +24,7 @@ Future main(List<String> arguments) async {
     }
     if (img.mpix > threshold) {
       needToConvert = true;
-      final scale = threshold/img.mpix;
+      final scale = downscaleTo/img.mpix;
       final ppi = (img.dpi * scale).floor();
       if (needPpi > ppi) {
         needPpi = ppi;
@@ -77,6 +78,8 @@ Future _optimize(String filename, int ppi, bool force) async {
     '-oc',
     '-or',
     '-od',
+    '-rc',
+    '-ff',
     '-lk',
     '1-RGACU-XVPEE-S8WMX-CNTMD-3WECC-CFJCR-B01LP',
     '-dr',
