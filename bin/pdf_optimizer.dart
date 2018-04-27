@@ -2,9 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-final a2width = 1191;
-final a2height = 1684;
-
 final downscaleTo = 9000000; //9mpix is fast enough
 final threshold = downscaleTo * 1.3;
 
@@ -183,88 +180,3 @@ class PdfPageData {
   final pageNum;
   PdfPageData(this.pageNum, this.dimensions);
 }
-
-
-//Future _downsample(String file) async {
-//  final args = [
-//    '-dColorImageDownsampleType=/Bicubic',
-//    '-dColorImageResolution=150',
-//    '-dGrayImageDownsampleType=/Bicubic',
-//    '-dGrayImageResolution=150',
-//    '-dMonoImageDownsampleType=/Bicubic',
-//    '-dMonoImageResolution=150',
-//    '-dPDFSETTINGS=/ebook',
-//    '-dBATCH',
-//    '-dNOPAUSE',
-//    '-q',
-//    '-sDEVICE=pdfwrite',
-//    '-dAutoRotatePages=/None',
-//    '-sOutputFile=$file.new',
-//    file
-//  ];
-//  await Process.run('gs', args).then((ProcessResult res) => print(res.stdout));
-//  await Process.run('mv', ['$file.new', '$file']);
-//}
-//
-//Future _concatenate(String filename, int pages) async {
-//  print("Concatenating pages");
-//  final processed = "1_${filename}";
-//  final args = [
-//    '-dBATCH',
-//    '-dNOPAUSE',
-//    '-q',
-//    '-sDEVICE=pdfwrite',
-//    '-dAutoRotatePages=/None',
-//    '-sOutputFile=$processed',
-//  ];
-//  for (var i=1; i<=pages; i++) {
-//    args.add("split$i.pdf");
-//  }
-//  await Process.run('gs', args);
-//  for (var i=1; i<=pages; i++) {
-//    await Process.run('rm', ['split$i.pdf']);
-//  }
-//  await Process.run('mv', ['$processed', '$filename']);
-//}
-//
-//Future _doResizePages(PdfData data, num scale) async {
-//  for (var i=1; i<=data.pages.length; i++) {
-//    final page = data.pages.firstWhere((p) => p.pageNum == i);
-//    print("=> scaling $i");
-//    await _doResizeFile("split$i.pdf", page.dimensions, scale);
-//  }
-//}
-//
-//Future _doResizeFile(String file, Point size, num scale) async {
-//  await Process.run('./pdfscale.sh', [
-//    '-a',
-//    'none',
-//    '-r',
-//    'custom pt ${(size.x*scale).round()} ${(size.y*scale).round()}',
-//    '-s',
-//    '1.05',
-//    '$file',
-//    '$file.scaled.pdf'
-//  ]);
-//  await Process.run('mv', ['$file.scaled.pdf', '$file']);
-//}
-//
-//Future _separatePages(String filename, int pages) async {
-//  print("Separating pages");
-//  for (var i=1; i<=pages; i++) {
-//    await Process.run('gs', [
-//      '-sDEVICE=pdfwrite',
-//      '-dCompatibilityLevel=1.4',
-//      '-dNOPAUSE',
-//      '-dQUIET',
-//      '-dBATCH',
-//      '-dColorImageFilter=/DCTEncode',
-//      '-dColorConversionStrategy=/LeaveColorUnchange',
-//      '-dFirstPage=$i',
-//      '-dLastPage=$i',
-//      '-sOutputFile=split$i.pdf',
-//      '-dAutoRotatePages=/None',
-//      filename
-//    ]);
-//  }
-//}
